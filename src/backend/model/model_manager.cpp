@@ -83,8 +83,8 @@ model_manager_load_model(ModelManager *manager, const char *model_path, const ch
                     torch::Tensor tensor = parm.value.detach();
                     //ereport(INFO,
                         //errmsg("layer_name:%s", layer_name));
-                    Vector* layer_parm = DatumGetVector(SysCacheGetAttr(LAYERMODELNAME, proctup, Anum_model_layer_info_parameter, &is_null));
-                    tensor.copy_(vector_to_tensor(*layer_parm));
+                    MVec* layer_parm = DatumGetMVec(SysCacheGetAttr(LAYERMODELNAME, proctup, Anum_model_layer_info_parameter, &is_null));
+                    tensor.copy_(vector_to_tensor(layer_parm));
                     break;
                 }
             }

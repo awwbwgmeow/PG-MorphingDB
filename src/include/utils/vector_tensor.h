@@ -8,9 +8,9 @@
 
 extern "C" {
 
-Vector* tensor_to_vector(torch::Tensor& tensor);
+MVec* tensor_to_vector(torch::Tensor& tensor);
 
-torch::Tensor vector_to_tensor(Vector& vector);
+torch::Tensor vector_to_tensor(MVec* vector);
 
 
 }

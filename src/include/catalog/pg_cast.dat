@@ -512,25 +512,25 @@
 { castsource => 'jsonb', casttarget => 'float8', castfunc => 'float8(jsonb)',
   castcontext => 'e', castmethod => 'f' },
 
-# float4[] float8[] integer[] text to vector
-{ castsource => '1007', casttarget => 'vector', castfunc => 'array_to_vector(1007)',
+# float4[] float8[] integer[] text to mvec
+{ castsource => '1007', casttarget => 'mvec', castfunc => 'array_to_mvec(1007)',
   castcontext => 'i', castmethod => 'f' },
 
-{ castsource => '1021', casttarget => 'vector', castfunc => 'array_to_vector(1021)',
+{ castsource => '1021', casttarget => 'mvec', castfunc => 'array_to_mvec(1021)',
   castcontext => 'i', castmethod => 'f' },
 
-{ castsource => '1022', casttarget => 'vector', castfunc => 'array_to_vector(1022)',
+{ castsource => '1022', casttarget => 'mvec', castfunc => 'array_to_mvec(1022)',
   castcontext => 'i', castmethod => 'f' },
 
-{ castsource => 'text', casttarget => 'vector', castfunc => 'text_to_vector(text)',
+{ castsource => 'text', casttarget => 'mvec', castfunc => 'text_to_mvec(text)',
   castcontext => 'i', castmethod => 'f' },
   
-# vector data to float4
-{ castsource => 'vector', casttarget => '1021', castfunc => 'get_vector_data(vector)',
+# mvec data to float4
+{ castsource => 'mvec', casttarget => '1021', castfunc => 'get_mvec_data(mvec)',
   castcontext => 'i', castmethod => 'f' },
 
-# vector shape to float4
-{ castsource => 'vector', casttarget => '1007', castfunc => 'get_vector_shape(vector)',
+# mvec shape to float4
+{ castsource => 'mvec', casttarget => '1007', castfunc => 'get_mvec_shape(mvec)',
   castcontext => 'i', castmethod => 'f' },
 ]
 

@@ -19,7 +19,7 @@ CATALOG(model_layer_info,2121,ModelLayerInfoRelationId)
 #ifdef CATALOG_VARLEN	
 	text    layername;
 	int16 	    layerindex;				
-	Vector    	parameter;
+	MVec    	parameter;
 	/*  注意：注释只能够是这种格式  */
 #endif
     
