@@ -4,7 +4,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
 #include "postgres.h"
 #include "utils/relcache.h"
 #include "utils/syscache.h"
@@ -34,7 +33,7 @@ model_manager_load_model(ModelManager *manager, const char *model_path, const ch
         return true;
     }
 
-    // load base model
+    // load model/base model
     try {
         torch::jit::script::Module cur_module = torch::jit::load(model_path);
         manager->module_handle_[model_path].first = cur_module;
@@ -48,7 +47,7 @@ model_manager_load_model(ModelManager *manager, const char *model_path, const ch
         return false;
     }
 
-    // load parameter
+    // load parameter if on base model
     if(model_name != NULL){
         // read layer parameter in layer_model_info
         pg_model_layer_info_rel = table_open(ModelLayerInfoRelationId, AccessShareLock);
@@ -59,11 +58,14 @@ model_manager_load_model(ModelManager *manager, const char *model_path, const ch
 
         CatCList* parameter_list = SearchSysCacheList1(LAYERMODELNAME,CStringGetDatum(model_name));
         parm_vector_size = parameter_list->n_members;
+        ereport(INFO, (errmsg("parm_vector_size:%d", parm_vector_size)));
+        
         // layer_tensor_parm is ordered
-        auto layer_tensor_parm = manager->module_handle_[model_path].first.named_parameters();
+        auto layer_tensor_parms = manager->module_handle_[model_path].first.named_parameters();
+        auto layer_tensor_bufs = manager->module_handle_[model_path].first.named_buffers();
 
         // verify model layer num
-        if(parm_vector_size != layer_tensor_parm.size()){
+        if(parm_vector_size != (layer_tensor_parms.size() + layer_tensor_bufs.size())){
             ereport(ERROR,
                     errmsg("model \"%s\" layer num not equal to base model", model_name));
         }
@@ -73,28 +75,60 @@ model_manager_load_model(ModelManager *manager, const char *model_path, const ch
         for(size_t index=0; index<parm_vector_size; ++index){
             HeapTuple proctup = &parameter_list->members[index]->tuple;
             char* layer_name = DatumGetCString(SysCacheGetAttr(LAYERMODELNAME, proctup, Anum_model_layer_info_layername, &is_null));
+            ereport(INFO, (errmsg("layer_name:%s", layer_name)));
 
+            // for(const auto& parm : layer_tensor_parms){
+            //     // model_layer_info exist in model
+            //     if(parm.name == layer_name){
+            //         torch::Tensor tensor = parm.value.detach();
+            //         MVec* layer_parm = DatumGetMVec(SysCacheGetAttr(LAYERMODELNAME, proctup, Anum_model_layer_info_parameter, &is_null));
+            //         tensor.copy_(vector_to_tensor(layer_parm));
+            //         break;
+            //     }
+            // }
+            // for(const auto& parm : layer_tensor_bufs){
+            //     if(parm.name == layer_name){
+            //         torch::Tensor tensor = parm.value.detach();
+            //         MVec* layer_parm = DatumGetMVec(SysCacheGetAttr(LAYERMODELNAME, proctup, Anum_model_layer_info_parameter, &is_null));
+            //         tensor.copy_(vector_to_tensor(layer_parm));
+            //         break;
+            //     }
+            // }
 
-            for(const auto& parm : layer_tensor_parm){
-                // model_layer_info exist in model
-                //ereport(INFO,
-                    //errmsg("parm.name:%s", parm.name.c_str()));
+            for(const auto& parm : layer_tensor_parms){
                 if(parm.name == layer_name){
-                    torch::Tensor tensor = parm.value.detach();
-                    //ereport(INFO,
-                        //errmsg("layer_name:%s", layer_name));
+                    torch::Tensor base_model_layer_tensor = parm.value.detach_();
                     MVec* layer_parm = DatumGetMVec(SysCacheGetAttr(LAYERMODELNAME, proctup, Anum_model_layer_info_parameter, &is_null));
-                    tensor.copy_(vector_to_tensor(layer_parm));
+                    torch::Tensor layer_tensor = vector_to_tensor(layer_parm);
+                    // resize fc layer
+                    if(parm.name.find("fc") != std::string::npos) {
+                        try{
+                            base_model_layer_tensor.resize_(layer_tensor.sizes());
+                        }
+                        catch (const std::exception& e) {
+                            ereport(INFO, (errmsg("error message:%s.", e.what())));
+                            return false;
+                        }
+                        base_model_layer_tensor.copy_(layer_tensor);
+                    }
+                    break;
+                }
+            }
+
+            for(const auto& parm : layer_tensor_bufs){
+                if(parm.name == layer_name){
+                    torch::Tensor base_model_layer_tensor = parm.value.detach_();
+                    MVec* layer_parm = DatumGetMVec(SysCacheGetAttr(LAYERMODELNAME, proctup, Anum_model_layer_info_parameter, &is_null));
+                    torch::Tensor layer_tensor = vector_to_tensor(layer_parm);
+                    base_model_layer_tensor.copy_(layer_tensor);
                     break;
                 }
             }
         }
         ReleaseCatCacheList(parameter_list);
         table_close(pg_model_layer_info_rel, AccessShareLock);
-        
     }
-    return true;
-    
+    return true;    
 }
 
 char* replace_model_path(char* origin_path) {
@@ -154,7 +188,7 @@ model_manager_get_model_path(ModelManager *manager, const char *model_name, char
         }
         path_datum = heap_getattr(base_model_info_tuple, Anum_base_model_info_modelpath, 
                               RelationGetDescr(pg_base_model_info_rel), &path_is_null);
-        if(!path_is_null) *model_path = replace_model_path(TextDatumGetCString(path_datum));  
+        if(!path_is_null) *model_path = replace_model_path(TextDatumGetCString(path_datum));
         ReleaseSysCache(base_model_info_tuple);
         table_close(pg_base_model_info_rel, AccessShareLock);
     // new model 

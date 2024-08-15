@@ -167,6 +167,10 @@ void register_default_model()
     model_manager_register_pre_process(&model_manager, "sst2", SST2PreProcess);
     model_manager_register_output_process_float(&model_manager, "sst2", SST2OutputProcessFloat);
     model_manager_register_output_process_text(&model_manager, "sst2", SST2OutputProcessText);
+
+    model_manager_register_pre_process(&model_manager, "test_base", SST2PreProcess);
+    model_manager_register_output_process_float(&model_manager, "test_base", SST2OutputProcessFloat);
+    model_manager_register_output_process_text(&model_manager, "test_base", SST2OutputProcessText);
 }
 
 }

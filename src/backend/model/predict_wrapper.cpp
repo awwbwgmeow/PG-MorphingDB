@@ -195,13 +195,22 @@ infer_batch_internal(VecAggState *state, bool ret_float8)
     }
 
     // 1. 加载模型
-    if(!model_manager_load_model(&model_manager, model_path)){
-        ereport(ERROR, (errmsg("load model error")));
+    // if(!model_manager_load_model(&model_manager, model_path)){
+    //     ereport(ERROR, (errmsg("load model error")));
+    // }
+    if(base_model == nullptr){
+        if(!model_manager_load_model(&model_manager, model_path)){
+            ereport(ERROR, (errmsg("load model error")));
+        }
+    }else{
+        if(!model_manager_load_model(&model_manager, model_path, state->model, base_model)){
+            ereport(ERROR, (errmsg("load model error")));
+        }
     }
     
     // 2. 设置gpu模式
-    if(pg_strcasecmp(state->cuda, "gpu") == 0 && 
-       model_manager_set_cuda(&model_manager, model_path)){
+    if(pg_strcasecmp(state->cuda, "gpu") == 1){
+       model_manager_set_cuda(&model_manager, model_path);
     }
  
     std::vector<std::thread> pool;
@@ -321,15 +330,11 @@ predict_float(const char* model_name, const char* cuda, Args* args)
             ereport(ERROR, (errmsg("load model error")));
         }
     }
-    
-    if(pg_strcasecmp(cuda, "gpu") == 0 && 
-       model_manager_set_cuda(&model_manager, model_path)){
-
-    }
     // 2. 设置gpu模式
-    // if(model_manager_set_cuda(&model_manager, model_path)){
-        
-    // }
+    if(pg_strcasecmp(cuda, "gpu") == 1){
+       model_manager_set_cuda(&model_manager, model_path);
+    }
+    
     // 3. 输入预处理
     auto start_time = std::chrono::system_clock::now();
     if(!model_manager_pre_process(&model_manager, model_path, input_tensor, args)){
@@ -389,9 +394,6 @@ predict_text(const char* model_name, const char* cuda, Args* args)
         ereport(ERROR, (errmsg("model not exist,can't get path!")));
     }
     
-    //ereport(INFO, (errmsg("model_path:%s", model_path.c_str())));
-
-    
     // 1. 加载模型
     if(base_model == nullptr){
         if(!model_manager_load_model(&model_manager, model_path)){
@@ -402,14 +404,12 @@ predict_text(const char* model_name, const char* cuda, Args* args)
             ereport(ERROR, (errmsg("load model error")));
         }
     }
-    if(!model_manager_load_model(&model_manager, model_path, model_name)){
-        ereport(ERROR, (errmsg("load model error")));
-    }
-    
+    // if(!model_manager_load_model(&model_manager, model_path, model_name)){
+    //     ereport(ERROR, (errmsg("load model error")));
+    // }
     // 2. 设置gpu模式
-    if(pg_strcasecmp(cuda, "gpu") == 0 && 
-       model_manager_set_cuda(&model_manager, model_path)){
-
+    if(pg_strcasecmp(cuda, "gpu") == 1){
+       model_manager_set_cuda(&model_manager, model_path);
     }
 
     // 3. 输入预处理
@@ -418,7 +418,6 @@ predict_text(const char* model_name, const char* cuda, Args* args)
         ereport(ERROR, (errmsg("%s:preprocess error!", model_path)));
     }
     pre_time  = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now() - start_time).count();
-
     // 4. 预测
     start_time = std::chrono::system_clock::now();
     if(!model_manager_predict_multi_input(&model_manager, model_path, input_tensor, output_tensor)){
@@ -469,9 +468,12 @@ model_parameter_extraction(const char* model_path, ModelLayer** parameter_list, 
 
     
     auto parms = model.named_parameters();
-    *layer_size = parms.size();
+    auto buffers = model.named_buffers();
+    *layer_size = parms.size() + buffers.size();
+    // *layer_size = parms.size();
     ereport(INFO, (errmsg("layer_size:%d", *layer_size)));
     *parameter_list = (ModelLayer*)palloc((*layer_size) * sizeof(ModelLayer));
+    
     int index=0;
     for(const auto& pair : parms){
         std::string name = pair.name;
@@ -480,16 +482,102 @@ model_parameter_extraction(const char* model_path, ModelLayer** parameter_list, 
         (*parameter_list)[index].layer_name = (char*)palloc((name.size() + 1) * sizeof(char));
         strcpy((*parameter_list)[index].layer_name, name.c_str());
 
-        Vector* vector = tensor_to_vector(tensor);
+        MVec* vector = tensor_to_vector(tensor);
         (*parameter_list)[index].layer_parameter = vector;
 
-        for(unsigned int i=0; i<vector->dim; ++i){
-            //ereport(INFO, (errmsg("vector:%f", vector->x[i])));
-        }
+        // for(unsigned int i=0; i<GET_MVEC_DIM(vector); ++i){
+            //ereport(INFO, (errmsg("vector:%f", GET_MVEC_VAL(vector, i))));
+        // }
 
         ereport(INFO, (errmsg("layer name:%s", (*parameter_list)[index].layer_name)));
         index++;
     }
+    for(const auto& pair : buffers){
+        std::string name = pair.name;
+        torch::Tensor tensor = pair.value;
+
+        (*parameter_list)[index].layer_name = (char*)palloc((name.size() + 1) * sizeof(char));
+        strcpy((*parameter_list)[index].layer_name, name.c_str());
+
+        MVec* vector = tensor_to_vector(tensor);
+        (*parameter_list)[index].layer_parameter = vector;
+
+        // for(unsigned int i=0; i<GET_MVEC_DIM(vector); ++i){
+            //ereport(INFO, (errmsg("vector:%f", GET_MVEC_VAL(vector, i))));
+        // }
+
+        ereport(INFO, (errmsg("layer name:%s", (*parameter_list)[index].layer_name)));
+        index++;
+    }
+}
+
+int compare_model_struct(const char* model_path, const char* base_model_path)
+{
+    torch::jit::script::Module model, base_model;
+    try {
+        model = torch::jit::load(model_path);
+        base_model = torch::jit::load(base_model_path);
+    }
+    catch (const std::exception& e) {
+        return 1;
+    }
+    std::vector<std::pair<std::string, torch::Tensor>> base_model_parameters_vec;
+    std::vector<std::pair<std::string, torch::Tensor>> base_model_buffers_vec;
+
+    auto model_modules = model.named_modules();
+    auto base_model_modules = base_model.named_modules();
+
+    auto model_parameters = model.named_parameters();
+    auto base_model_parameters = base_model.named_parameters();
+
+    auto model_buffers = model.named_buffers();
+    auto base_model_buffers = base_model.named_buffers();
+
+    if (model_modules.size() != base_model_modules.size() || 
+        model_parameters.size() != base_model_parameters.size()) {   
+        return 2;
+    }
+
+    for (const auto& pair : base_model_parameters) {
+        std::string layer_name = pair.name;
+        torch::Tensor parameter = pair.value;
+        base_model_parameters_vec.push_back(std::make_pair(layer_name, parameter));
+    }
+
+    for (const auto& pair : base_model_buffers) {
+        std::string layer_name = pair.name;
+        torch::Tensor buffer = pair.value;
+        base_model_buffers_vec.push_back(std::make_pair(layer_name, buffer));
+    }
+
+    auto iter = base_model_parameters_vec.begin();
+    for (const auto& pair : model_parameters) {
+        std::string layer_name = pair.name;
+        torch::Tensor model_tensor = pair.value;
+
+        if (layer_name.find("fc") != std::string::npos) {
+            continue;
+        }
+        
+        if(iter->first != layer_name || model_tensor.sizes() != iter->second.sizes()){
+            return 3;
+        }
+        iter++;
+    }
+
+    iter = base_model_buffers_vec.begin();
+    for (const auto& pair : model_buffers) {
+        std::string layer_name = pair.name;
+        torch::Tensor model_tensor = pair.value;
+        
+        if(iter->first != layer_name || model_tensor.sizes() != iter->second.sizes()){
+            return 3;
+        }
+        iter++;
+    }
+    
+
+    return 0;
 }
 
 

@@ -145,10 +145,10 @@ createmd(ParseState *pstate, const CreatemdStmt *stmt)
             ereport(ERROR,
                     errmsg("model layer empty"));
         }
+        ereport(INFO, (errmsg("model parameter extraction success")));
 
         pg_model_layer_info_rel = table_open(ModelLayerInfoRelationId, RowExclusiveLock);
         
-
         for(int16 i=1; i<=layer_size; ++i){
             MemSet(new_layer_record, 0, sizeof(new_layer_record));
             MemSet(new_layer_record_nulls, false, sizeof(new_layer_record_nulls));
@@ -160,6 +160,8 @@ createmd(ParseState *pstate, const CreatemdStmt *stmt)
             CatalogTupleInsert(pg_model_layer_info_rel, tuple);
         }
         table_close(pg_model_layer_info_rel, RowExclusiveLock);
+
+        //ereport(INFO, (errmsg("insert parameter success")));
     }
 
     ForceSyncCommit();
@@ -192,23 +194,21 @@ dropmd(ParseState *pstate, const DropmdStmt *stmt){
 
     oldfilenamedatum = SysCacheGetAttr(MODELNAME, tuple, Anum_model_info_modelpath, &isnull);
     // has base model
-    if(isnull){
-        oldFilename = TextDatumGetCString(oldfilenamedatum);
-        // delete model file
-        remove(oldFilename);
-    }
-
+    // if(isnull){
+    //     oldFilename = TextDatumGetCString(oldfilenamedatum);
+    //     // delete model file
+    //     remove(oldFilename);
+    // }
     CatalogTupleDelete(pg_model_info_rel,&tuple->t_self);
 
     ReleaseSysCache(tuple);
     table_close(pg_model_info_rel, NoLock);
-
     // has base model
     if(isnull){
         if(!SearchSysCacheExists1(LAYERMODELNAME, CStringGetDatum(mdname))){
             ereport(ERROR,
                     (errcode(ERRCODE_UNDEFINED_MODEL),
-                    errmsg("model \"%s\" does not exist in model_layer_inf1o", mdname)));
+                    errmsg("model \"%s\" does not exist in model_layer_info", mdname)));
         }
         // delete model_layer_info
         pg_model_layer_info_rel = table_open(ModelLayerInfoRelationId, RowExclusiveLock);

@@ -9,7 +9,6 @@ tensor_to_vector(torch::Tensor& tensor)
     uint32 dim = tensor.numel();
     uint32 shape_size = tensor.sizes().size();
 
-
     MVec* vector = new_mvec(dim, shape_size);
 
     for (uint32 i=0; i<shape_size; ++i) {
@@ -17,17 +16,28 @@ tensor_to_vector(torch::Tensor& tensor)
     }
 
     if(shape_size == 0){
-        float value = tensor.item<float>();
-        SET_MVEC_VAL(vector, 0, value);
+        if (tensor.scalar_type() == torch::kFloat32) {
+            float value = tensor.item<float>();
+            SET_MVEC_VAL(vector, 0, value);
+        } else if (tensor.scalar_type() == torch::kInt64) {
+            int64_t value = tensor.item<int64_t>();
+            SET_MVEC_VAL(vector, 0, static_cast<float>(value));
+        }
         return vector;
     }
 
     torch::Tensor flattened_tensor = tensor.view({-1});
-    float* data_ptr = flattened_tensor.data_ptr<float>();
-    for (int i = 0; i < flattened_tensor.numel(); ++i) {
-        SET_MVEC_VAL(vector, i, data_ptr[i]);
+    if (tensor.scalar_type() == torch::kFloat32) {
+        float* data_ptr = flattened_tensor.data_ptr<float>();
+        for (int i = 0; i < flattened_tensor.numel(); ++i) {
+            SET_MVEC_VAL(vector, i, data_ptr[i]);
+        }
+    } else if (tensor.scalar_type() == torch::kInt64) {
+        int64_t* data_ptr = flattened_tensor.data_ptr<int64_t>();
+        for (int i = 0; i < flattened_tensor.numel(); ++i) {
+            SET_MVEC_VAL(vector, i, static_cast<float>(data_ptr[i]));
+        }
     }
-
     return vector;
 }
 
