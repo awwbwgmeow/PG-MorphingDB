@@ -156,6 +156,62 @@ bool SST2OutputProcessText(torch::jit::IValue& outputs, Args* args, std::string&
     return true;
 }
 
+bool ResLoadImage(std::vector<torch::jit::IValue>& img_tensor, Args* args) {
+    cv::Mat image;
+    cv::Mat image_float;
+    char* url = (char*)args[0].ptr;
+
+    image = cv::imread(url);
+    cv::cvtColor(image, image, cv::COLOR_BGR2RGB);
+    cv::resize(image, image, cv::Size(224, 224));
+    image.convertTo(image, CV_32FC3, 1.0/255.0, 0);
+    
+    auto tensor = torch::from_blob(image.data, {image.rows, image.cols, 3}, torch::kFloat32);
+    tensor = tensor.permute({2, 0, 1});
+    tensor = torch::data::transforms::Normalize<>({0.5, 0.5, 0.5}, {0.5, 0.5, 0.5})(tensor);
+    img_tensor.push_back(tensor.unsqueeze(0));
+    return true;
+}
+
+bool ResOutPutClassifyFloat(torch::jit::IValue& output_tensor, Args* args, float8& result)
+{
+    auto tensor = output_tensor.toTensor().slice(1, 0, 10);
+    
+    std::tuple<torch::Tensor,torch::Tensor> res = tensor.sort(1, true);
+    torch::Tensor top_scores = std::get<0>(res);
+
+    result = top_scores[0][0].item<float8>();
+    return true;
+}
+
+bool ResOutPutClassifyText(torch::jit::IValue& output_tensor, Args* args, std::string& result)
+{
+    std::array<const char*, 10> results{
+        "plane",
+        "car",
+        "bird",
+        "cat",
+        "deer",
+        "dog",
+        "frog",
+        "horse",
+        "ship",
+        "truck"
+    };
+
+    auto tensor = output_tensor.toTensor().slice(1, 0, 10);
+    
+    std::tuple<torch::Tensor,torch::Tensor> res = tensor.sort(1, true);
+    torch::Tensor top_scores = std::get<1>(res);
+
+    int index = top_scores[0][0].item<int>();    
+    result = results[index];
+
+    return true;
+}
+
+
+
 extern "C" {
 
 void register_default_model()
@@ -167,10 +223,10 @@ void register_default_model()
     model_manager_register_pre_process(&model_manager, "sst2", SST2PreProcess);
     model_manager_register_output_process_float(&model_manager, "sst2", SST2OutputProcessFloat);
     model_manager_register_output_process_text(&model_manager, "sst2", SST2OutputProcessText);
-
-    model_manager_register_pre_process(&model_manager, "test_base", SST2PreProcess);
-    model_manager_register_output_process_float(&model_manager, "test_base", SST2OutputProcessFloat);
-    model_manager_register_output_process_text(&model_manager, "test_base", SST2OutputProcessText);
+    
+    model_manager_register_pre_process(&model_manager, "res", ResLoadImage);
+    model_manager_register_output_process_float(&model_manager, "res", ResOutPutClassifyFloat);
+    model_manager_register_output_process_text(&model_manager, "res", ResOutPutClassifyText);
 }
 
 }

@@ -74,29 +74,15 @@ model_manager_load_model(ModelManager *manager, const char *model_path, const ch
         bool is_null;
         for(size_t index=0; index<parm_vector_size; ++index){
             HeapTuple proctup = &parameter_list->members[index]->tuple;
-            char* layer_name = DatumGetCString(SysCacheGetAttr(LAYERMODELNAME, proctup, Anum_model_layer_info_layername, &is_null));
+            char* layer_name = "";
+            Datum layer_name_datum = SysCacheGetAttr(LAYERMODELNAME, proctup, Anum_model_layer_info_layername, &is_null);
+            layer_name = TextDatumGetCString(layer_name_datum);
             ereport(INFO, (errmsg("layer_name:%s", layer_name)));
 
-            // for(const auto& parm : layer_tensor_parms){
-            //     // model_layer_info exist in model
-            //     if(parm.name == layer_name){
-            //         torch::Tensor tensor = parm.value.detach();
-            //         MVec* layer_parm = DatumGetMVec(SysCacheGetAttr(LAYERMODELNAME, proctup, Anum_model_layer_info_parameter, &is_null));
-            //         tensor.copy_(vector_to_tensor(layer_parm));
-            //         break;
-            //     }
-            // }
-            // for(const auto& parm : layer_tensor_bufs){
-            //     if(parm.name == layer_name){
-            //         torch::Tensor tensor = parm.value.detach();
-            //         MVec* layer_parm = DatumGetMVec(SysCacheGetAttr(LAYERMODELNAME, proctup, Anum_model_layer_info_parameter, &is_null));
-            //         tensor.copy_(vector_to_tensor(layer_parm));
-            //         break;
-            //     }
-            // }
-
             for(const auto& parm : layer_tensor_parms){
-                if(parm.name == layer_name){
+                std::string name = parm.name.c_str();
+                if(name == layer_name){
+                    ereport(INFO, (errmsg("parm_name:%s", name.c_str())));
                     torch::Tensor base_model_layer_tensor = parm.value.detach_();
                     MVec* layer_parm = DatumGetMVec(SysCacheGetAttr(LAYERMODELNAME, proctup, Anum_model_layer_info_parameter, &is_null));
                     torch::Tensor layer_tensor = vector_to_tensor(layer_parm);
@@ -109,14 +95,16 @@ model_manager_load_model(ModelManager *manager, const char *model_path, const ch
                             ereport(INFO, (errmsg("error message:%s.", e.what())));
                             return false;
                         }
-                        base_model_layer_tensor.copy_(layer_tensor);
                     }
+                    base_model_layer_tensor.copy_(layer_tensor);
                     break;
                 }
             }
 
             for(const auto& parm : layer_tensor_bufs){
-                if(parm.name == layer_name){
+                std::string name = parm.name.c_str();
+                if(name == layer_name){
+                    ereport(INFO, (errmsg("buf_name:%s", name.c_str())));
                     torch::Tensor base_model_layer_tensor = parm.value.detach_();
                     MVec* layer_parm = DatumGetMVec(SysCacheGetAttr(LAYERMODELNAME, proctup, Anum_model_layer_info_parameter, &is_null));
                     torch::Tensor layer_tensor = vector_to_tensor(layer_parm);
